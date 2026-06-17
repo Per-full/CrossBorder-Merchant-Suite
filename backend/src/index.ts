@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
+import path from 'path';
 
 dotenv.config();
 
@@ -23,12 +24,19 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// 静态映射 uploads 目录（用于展示抓取并下载的图片）
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+// 导入路由（动态加载，避免循环依赖问题）
+import importByUrlRouter from './routes/importByUrl';
+app.use('/api', importByUrlRouter);
+
 // 健康检查
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API 路由
+// API 根
 app.get('/api/v1', (req, res) => {
   res.json({ message: 'CrossBorder Merchant Suite API v1' });
 });
@@ -49,5 +57,5 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📋 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });

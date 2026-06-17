@@ -16,17 +16,32 @@ function ensureUploadsDir() {
 async function downloadImageToUploads(url: string): Promise<string> {
   try {
     ensureUploadsDir();
-    const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    // Basic guard: avoid data: URLs
+    if (url.startsWith('data:') || url.startsWith('javascript:')) return url;
+
+    const resp = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 20000,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      maxContentLength: 5 * 1024 * 1024, // 5MB
+    });
     if (!resp || !resp.data) return url;
-    const parsed = new URL(url);
-    let ext = path.extname(parsed.pathname).split('?')[0] || '.jpg';
-    if (!ext || ext.length > 5) ext = '.jpg';
-    const filename = `${uuidv4()}${ext}`;
+
+    let parsedExt = '.jpg';
+    try {
+      const parsed = new URL(url);
+      const ext = path.extname(parsed.pathname) || '';
+      if (ext && ext.length <= 6) parsedExt = ext;
+    } catch (e) {
+      // ignore
+    }
+
+    const filename = `${uuidv4()}${parsedExt}`;
     const filepath = path.join(UPLOADS_DIR, filename);
     fs.writeFileSync(filepath, Buffer.from(resp.data));
     return `/uploads/${filename}`;
   } catch (err) {
-    console.warn('downloadImageToUploads error', err);
+    console.warn('downloadImageToUploads error', err?.message || err);
     return url;
   }
 }
@@ -51,10 +66,23 @@ router.post('/import-by-url', async (req, res) => {
   const { url, usePuppeteer = false } = req.body;
   if (!url) return res.status(400).json({ error: 'missing url' });
 
+  // Validate URL
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'invalid url protocol' });
+    }
+  } catch (e) {
+    return res.status(400).json({ error: 'invalid url' });
+  }
+
   try {
     let html: string | null = null;
     try {
-      const resp = await axios.get(url, { timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/115.0 Safari/537.36' } });
+      const resp = await axios.get(url, {
+        timeout: 15000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/115.0 Safari/537.36' },
+      });
       html = resp.data;
     } catch (err) {
       if (usePuppeteer) {
@@ -95,12 +123,19 @@ router.post('/import-by-url', async (req, res) => {
 
     const images: string[] = [];
     const ogImage = $('meta[property="og:image"]').attr('content');
-    if (ogImage) images.push(new URL(ogImage, url).toString());
+    if (ogImage) {
+      try {
+        images.push(new URL(ogImage, url).toString());
+      } catch (e) {
+        // skip
+      }
+    }
 
     $('img').each((i, el) => {
-      if (images.length >= 20) return;
+      if (images.length >= 12) return;
       const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original');
-      if (src) {
+      if (src && typeof src === 'string') {
+        if (src.startsWith('data:') || src.startsWith('javascript:')) return;
         try {
           const abs = new URL(src, url).toString();
           if (!images.includes(abs)) images.push(abs);
@@ -111,14 +146,17 @@ router.post('/import-by-url', async (req, res) => {
     });
 
     const attributes: Record<string, string> = {};
-    $('table').first().find('tr').each((i, tr) => {
-      const tds = $(tr).find('td,th');
-      if (tds.length >= 2) {
-        const k = $(tds[0]).text().trim();
-        const v = $(tds[1]).text().trim();
-        if (k) attributes[k] = v;
-      }
-    });
+    $('table')
+      .first()
+      .find('tr')
+      .each((i, tr) => {
+        const tds = $(tr).find('td,th');
+        if (tds.length >= 2) {
+          const k = $(tds[0]).text().trim();
+          const v = $(tds[1]).text().trim();
+          if (k) attributes[k] = v;
+        }
+      });
 
     if (Object.keys(attributes).length === 0) {
       $('ul li').each((i, li) => {

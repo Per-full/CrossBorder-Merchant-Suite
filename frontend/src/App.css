@@ -1,0 +1,33 @@
+.logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.logo h2 {
+  color: white;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ant-layout-sider {
+  background: #001529;
+}
+
+.ant-menu {
+  background: #001529;
+  border-right: none;
+}
+
+.page-container {
+  padding: 24px;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}

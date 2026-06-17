@@ -1,9 +1,15 @@
 import React from 'react';
-import { Form, Input, InputNumber, Select, Button, Card, Row, Col, Upload, Space } from 'antd';
+import { Form, Input, InputNumber, Select, Button, Card, Row, Col, Upload, Space, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
+import axios from 'axios';
+
+const { Search } = Input;
 
 const SingleUpload: React.FC = () => {
   const [form] = Form.useForm();
+  const [fileList, setFileList] = React.useState<any[]>([]);
+  const [importing, setImporting] = React.useState(false);
+  const [urlToImport, setUrlToImport] = React.useState('');
 
   const platforms = [
     { label: 'TikTok Shop', value: 'tiktok' },
@@ -13,7 +19,51 @@ const SingleUpload: React.FC = () => {
 
   const onFinish = (values: any) => {
     console.log('表单数据:', values);
+    message.success('表单已提交（示例）');
     // TODO: 调用 API 提交数据
+  };
+
+  const handleImportByUrl = async (value?: string) => {
+    const url = (value || urlToImport || '').trim();
+    if (!url) return message.warn('请输入商品页面 URL');
+    setImporting(true);
+    try {
+      const resp = await axios.post('/api/import-by-url', { url });
+      const result = resp.data;
+      if (!result || !result.data) {
+        message.error('解析失败：返回数据为空');
+        return;
+      }
+      const d = result.data;
+
+      // 填充表单字段
+      form.setFieldsValue({
+        productName: d.title || undefined,
+        description: d.description || undefined,
+        price: d.price ? Number(d.price) : undefined,
+        stock: undefined,
+        platforms: ['1688'],
+      });
+
+      // 将后端返回的图片（可能是 /uploads/xxx 或外链）转换为 Upload 的 fileList
+      if (Array.isArray(d.images) && d.images.length > 0) {
+        const newFileList = d.images.map((img: string, idx: number) => ({
+          uid: `import-${idx}`,
+          name: `image-${idx}`,
+          status: 'done',
+          url: img,
+        }));
+        setFileList(newFileList);
+      }
+
+      message.success('导入成功，表单已填充，请检查并修改后发布');
+    } catch (err: any) {
+      console.error('import error', err);
+      const msg = err?.response?.data?.error || err?.message || '导入失败';
+      message.error(`导入失败: ${msg}`);
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -23,6 +73,18 @@ const SingleUpload: React.FC = () => {
       <Row gutter={[24, 24]}>
         <Col xs={24} lg={16}>
           <Card title="产品信息">
+            {/* URL 导入控件 */}
+            <div style={{ marginBottom: 16 }}>
+              <Search
+                placeholder="粘贴 1688 商品页面 URL，按回车或点击导入"
+                enterButton={importing ? '导入中...' : '导入'}
+                value={urlToImport}
+                onChange={(e) => setUrlToImport(e.target.value)}
+                onSearch={handleImportByUrl}
+                loading={importing}
+              />
+            </div>
+
             <Form
               form={form}
               layout="vertical"
@@ -82,7 +144,9 @@ const SingleUpload: React.FC = () => {
                 <Upload
                   listType="picture-card"
                   multiple
-                  maxCount={9}
+                  fileList={fileList}
+                  onPreview={(file) => window.open((file as any).url || (file as any).thumbUrl)}
+                  onChange={({ fileList: newList }) => setFileList(newList)}
                   beforeUpload={() => false}
                 >
                   <div>
